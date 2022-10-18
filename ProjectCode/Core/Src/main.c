@@ -21,12 +21,19 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum {
+	STATE_RUNNING,
+	STATE_WAITING,
+	STATE_DANGER
+}State_t;
 
+State_t current_state = STATE_RUNNING;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -90,6 +97,29 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  switch(current_state){
+	  	  case STATE_RUNNING:
+	  	  case STATE_DANGER:
+
+	  		HAL_SuspendTick(); // prevent wakeup from systick interrupt
+	  		HAL_PWR_EnableSleepOnExit(); // MCU wakeup, process ISR and then go back to sleep
+	  		HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
+	  		HAL_ResumeTick(); // sleep mode ended -> HAL_PWR_DisableSleepOnExit() has been called
+
+	  		break;
+
+
+	  	  case STATE_WAITING:
+	  		char msg[] = "Board in waiting state - please press the emergency button\r\n";
+
+	  		while(1){
+	  			HAL_UART_Transmit(&huart2, (uint8_t *)msg , strlen(msg), HAL_MAX_DELAY);
+	  			HAL_Delay(500);
+	  		}
+	  		break;
+	  }
+
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
