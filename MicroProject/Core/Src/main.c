@@ -135,6 +135,10 @@ int main(void)
 					HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
 				}
 
+				HAL_SuspendTick(); // prevent wakeup from systick interrupt
+				HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
+
+
 				/*
 				HAL_SuspendTick(); // prevent wakeup from systick interrupt
 				HAL_PWR_EnableSleepOnExit(); // MCU wakeup, process ISR and then go back to sleep
@@ -410,6 +414,7 @@ static void MX_GPIO_Init(void)
 
 // called by IRQHandler of GPIO_EXTI
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	HAL_ResumeTick();
 	if(GPIO_Pin == B1_Pin){
 		if(current_state == STATE_RUNNING || current_state == STATE_DANGER){
 			first_entry = 1;
@@ -429,6 +434,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	char msg[30];
 	ADC_ChannelConfTypeDef sConfig = {0};
 	sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+	HAL_ResumeTick();
 
 	if(htim == &htim10){
 		// 200ms -> sensor value
