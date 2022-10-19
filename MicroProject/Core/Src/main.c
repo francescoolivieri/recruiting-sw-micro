@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -73,8 +74,13 @@ static void MX_RTC_Init(void);
 
 float sens_val = 0;
 float sys_voltage = 2.0;
-uint8_t first_entry = 1;
 
+bool first_entry = true;
+bool sys_v_change = false;
+bool sens_val_change = false;
+
+RTC_TimeTypeDef sTime;
+RTC_DateTypeDef sDate;
 /* USER CODE END 0 */
 
 /**
@@ -116,6 +122,8 @@ int main(void)
   char msg[50];
   strcpy(msg, "Board in waiting state - please press the emergency button\r\n");
 
+  char msg2[50];
+
   HAL_TIM_Base_Start_IT(&htim10);
   HAL_TIM_Base_Start_IT(&htim11);
   /* USER CODE END 2 */
@@ -128,21 +136,34 @@ int main(void)
 		switch (current_state) {
 			case STATE_RUNNING:
 			case STATE_DANGER:
+				//HAL_SuspendTick(); // prevent wakeup from systick interrupt
+				//HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
 
-				if(sys_voltage < 1.8){
-					HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_SET);
-					HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
-				}else if(sys_voltage > 2.7){
-					HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_SET);
-					HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
-				}else{
-					HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
-					HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
+				HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
+				HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+
+				if(sens_val_change == true){
+					sens_val_change = false;
+
+					sprintf(msg2, "T: %.2f (%02d:%02d)\r\n", sens_val, sTime.Minutes, sTime.Seconds);
+					HAL_UART_Transmit(&huart2, (uint8_t*) msg2, strlen(msg2), HAL_MAX_DELAY);
+				}else if(sys_v_change == true){
+					sys_v_change = false;
+
+					if(sys_voltage < 1.8){
+						HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_SET);
+						HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
+					}else if(sys_voltage > 2.7){
+						HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_SET);
+						HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
+					}else{
+						HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
+						HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
+					}
+
+					sprintf(msg2, "V: %.2f (%02d:%02d)\r\n", sys_voltage, sTime.Minutes, sTime.Seconds);
+					HAL_UART_Transmit(&huart2, (uint8_t*) msg2, strlen(msg2), HAL_MAX_DELAY);
 				}
-
-				HAL_SuspendTick(); // prevent wakeup from systick interrupt
-				HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
-
 
 				/*
 				HAL_SuspendTick(); // prevent wakeup from systick interrupt
@@ -154,12 +175,12 @@ int main(void)
 
 			case STATE_WAITING:
 
-				if(first_entry == 1){
+				if(first_entry){
 					HAL_TIM_Base_Stop_IT(&htim10);
 					HAL_TIM_Base_Stop_IT(&htim11);
 					HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
 					HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
-					first_entry = 0;
+					first_entry = false;
 				}
 
 				HAL_UART_Transmit(&huart2, (uint8_t*) msg, strlen(msg), HAL_MAX_DELAY);
@@ -503,9 +524,10 @@ static void MX_GPIO_Init(void)
 // called by IRQHandler of GPIO_EXTI
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	HAL_ResumeTick();
+
 	if(GPIO_Pin == B1_Pin){
 		if(current_state == STATE_RUNNING || current_state == STATE_DANGER){
-			first_entry = 1;
+			first_entry = true;
 			current_state = STATE_WAITING;
 		}else{
 			HAL_TIM_Base_Start_IT(&htim10);
@@ -517,14 +539,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
 // called by IRQHandler of the timer when it resets itself
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-	uint16_t raw;
-	char msg[30];
-	RTC_TimeTypeDef sTime;
-	RTC_DateTypeDef sDate;
-	ADC_ChannelConfTypeDef sConfig = {0};
-	sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
 	HAL_ResumeTick();
 
+	ADC_ChannelConfTypeDef sConfig = {0};
+	sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+
+	uint16_t raw;
 	if(htim == &htim10){
 		// 200ms -> sensor value
 
@@ -540,17 +560,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		sens_val = (raw * 330.0) / 4095.0;
 		HAL_ADC_Stop(&hadc1);
 
-		HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
-		HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
-
-		sprintf(msg, "T: %.2f (%02d:%02d)\r\n", sens_val, sTime.Minutes, sTime.Seconds);
-		HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), HAL_MAX_DELAY);
+		sens_val_change = true;
 	}else if(htim == &htim11){
 		// 350ms -> sys_voltage check
 
 		sConfig.Channel = ADC_CHANNEL_12;
 		sConfig.Rank = 1;
-
 
 		HAL_ADC_ConfigChannel(&hadc1, &sConfig);
 		// posso controllare status
@@ -561,11 +576,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		sys_voltage = (raw * 3.3) / 4095.0;
 		HAL_ADC_Stop(&hadc1);
 
-		HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
-		HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
-
-		sprintf(msg, "V: %.2f (%02d:%02d)\r\n", sys_voltage , sTime.Minutes, sTime.Seconds);
-		HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), HAL_MAX_DELAY);
+		sys_v_change = true;
 	}
 
 }
