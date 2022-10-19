@@ -69,7 +69,8 @@ static void MX_ADC1_Init(void);
 /* USER CODE BEGIN 0 */
 
 float sens_val = 0;
-float sys_voltage = 0;
+float sys_voltage = 2.0;
+uint8_t first_entry = 1;
 
 /* USER CODE END 0 */
 
@@ -118,14 +119,17 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 	while (1) {
+
 		switch (current_state) {
 			case STATE_RUNNING:
 			case STATE_DANGER:
 
 				if(sys_voltage < 1.8){
 					HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_SET);
-				}else if(sys_voltage > 2.3){
+					HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
+				}else if(sys_voltage > 2.7){
 					HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_SET);
+					HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
 				}else{
 					HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
 					HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
@@ -141,6 +145,13 @@ int main(void)
 
 			case STATE_WAITING:
 
+				if(first_entry == 1){
+					HAL_TIM_Base_Stop_IT(&htim10);
+					HAL_TIM_Base_Stop_IT(&htim11);
+					HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
+					HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
+					first_entry = 0;
+				}
 
 				HAL_UART_Transmit(&huart2, (uint8_t*) msg, strlen(msg), HAL_MAX_DELAY);
 				HAL_Delay(500);
@@ -401,8 +412,7 @@ static void MX_GPIO_Init(void)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	if(GPIO_Pin == B1_Pin){
 		if(current_state == STATE_RUNNING || current_state == STATE_DANGER){
-			HAL_TIM_Base_Stop_IT(&htim10);
-			HAL_TIM_Base_Stop_IT(&htim11);
+			first_entry = 1;
 			current_state = STATE_WAITING;
 		}else{
 			HAL_TIM_Base_Start_IT(&htim10);
@@ -421,7 +431,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
 
 	if(htim == &htim10){
-		// 250ms
+		// 200ms -> sensor value
 
 		sConfig.Channel = ADC_CHANNEL_11;
 		sConfig.Rank = 1;
@@ -441,19 +451,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 		// 350ms -> sys_voltage check
 
 		sConfig.Channel = ADC_CHANNEL_12;
-				sConfig.Rank = 1;
+		sConfig.Rank = 1;
 
-				HAL_ADC_ConfigChannel(&hadc1, &sConfig);
-				// posso controllare status
-				HAL_ADC_Start(&hadc1); // start getting ADC value
-				//if time > delay -> HAL_TIMEOUT value is returned, I should use DMA so I don't operate with CPU
-				HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY); //hang until the conversion is done
-				raw = HAL_ADC_GetValue(&hadc1);
-				sys_voltage = (raw * 3.3) / 4095.0;
-				HAL_ADC_Stop(&hadc1);
+		HAL_ADC_ConfigChannel(&hadc1, &sConfig);
+		// posso controllare status
+		HAL_ADC_Start(&hadc1); // start getting ADC value
+		//if time > delay -> HAL_TIMEOUT value is returned, I should use DMA so I don't operate with CPU
+		HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY); //hang until the conversion is done
+		raw = HAL_ADC_GetValue(&hadc1);
+		sys_voltage = (raw * 3.3) / 4095.0;
+		HAL_ADC_Stop(&hadc1);
 
-				sprintf(msg, "M: %f\r\n", sys_voltage);
-				HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), HAL_MAX_DELAY);
+		sprintf(msg, "M: %f\r\n", sys_voltage);
+		HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), HAL_MAX_DELAY);
 	}
 
 }
