@@ -145,6 +145,7 @@ int main(void)
 					HAL_SuspendTick(); // prevent wakeup from systick interrupt
 					HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
 				}*/
+
 				if(sens_val_change || sys_v_change){
 					if(sens_val_change == true){
 						sConfig.Channel = ADC_CHANNEL_11; // select sensor's channel
@@ -184,7 +185,7 @@ int main(void)
 						//sprintf(val_msg, "V: %.2f (%02d:%02d:%lu)\r\n", sens_val, sTime.Minutes, sTime.Seconds, msec);
 					}else if(sys_v_change){
 
-						if(current_state != STATE_DANGER)
+						if(current_state != STATE_DANGER) // otherwise I won't check the value in STATE_DANGER code
 							sys_v_change = false;
 
 						sprintf(val_msg,"V: %.2f (%lu ms)\r\n", sys_voltage, msec );
@@ -207,17 +208,19 @@ int main(void)
 					sys_voltage = (raw * 3.3) / 4095.0; // 3.3 -> Vin , 4095 -> 2^(12) - 1
 
 					// CHECK SYSTEM VOLTAGE
-					if(sys_voltage < 1.8){  // enable one LED
+					if(sys_voltage < 1.8){  // enable UNDERVOLTAGE LED
 						HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_SET);
 						HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
 
 						sprintf(val_msg, "SYSTEM VOLTAGE: UNDERVOLTAGE (%f)\r\n", sys_voltage );
-					}else if(sys_voltage > 2.7){  // enable the other LED
+
+					}else if(sys_voltage > 2.7){  // enable OVERVOLTAGE LED
 						HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_SET);
 						HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
 
 						sprintf(val_msg, "SYSTEM VOLTAGE: OVERVOLTAGE (%f)\r\n", sys_voltage );
-					}else{  // disable all LED
+
+					}else{  // disable all LED and switch to STATE_RUNNING
 						current_state = STATE_RUNNING;
 						HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
 						HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
