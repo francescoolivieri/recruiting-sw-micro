@@ -139,7 +139,6 @@ int main(void)
 
 		switch (current_state) {
 			case STATE_RUNNING:
-			case STATE_DANGER:
 				if(!sys_v_change && !sens_val_change){
 					HAL_SuspendTick(); // prevent wakeup from systick interrupt
 					HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
@@ -168,23 +167,14 @@ int main(void)
 					sys_voltage = (raw * 3.3) / 4095.0; // 3.3 -> Vin , 4095 -> 2^(12) - 1
 
 					// CHECK SYSTEM VOLTAGE
-					if(sys_voltage < 1.8){  // enable one LED
+					if(sys_voltage < 1.8 || sys_voltage > 2.7){  // switch to STATE_DANGER
 						current_state = STATE_DANGER;
-						HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_SET);
-						HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
-					}else if(sys_voltage > 2.7){  // enable the other LED
-						current_state = STATE_DANGER;
-						HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_SET);
-						HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
-					}else{  // disable all LED
-						current_state = STATE_RUNNING;
-						HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
-						HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
 					}
 				}
 
 				uint32_t msec = 1000 * (sTime.SecondFraction - sTime.SubSeconds) / (sTime.SecondFraction + 1);
 
+				//uint32_t msec = HAL_GetTick();
 				if(sens_val_change){
 					sens_val_change = false;
 
@@ -200,6 +190,46 @@ int main(void)
 				/*
 				HAL_PWR_EnableSleepOnExit(); // MCU wakeup, process ISR and then go back to sleep
 				*/
+				break;
+
+			case STATE_DANGER:
+				if(sys_v_change){
+					sConfig.Channel = ADC_CHANNEL_12; // select potentiometer's channel
+					HAL_ADC_ConfigChannel(&hadc1, &sConfig); // set selected channel
+
+					HAL_ADC_Start(&hadc1); // start getting ADC value
+					HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY); //hang until the conversion is done
+					raw = HAL_ADC_GetValue(&hadc1); // get raw value
+					HAL_ADC_Stop(&hadc1); // stop ADC reading
+
+					sys_voltage = (raw * 3.3) / 4095.0; // 3.3 -> Vin , 4095 -> 2^(12) - 1
+
+				}
+
+				// CHECK SYSTEM VOLTAGE
+				if(sys_voltage < 1.8){  // enable one LED
+					HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_SET);
+					HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
+
+					sprintf(val_msg, "SYSTEM VOLTAGE: UNDERVOLTAGE (%f)\r\n", sys_voltage );
+				}else if(sys_voltage > 2.7){  // enable the other LED
+					HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_SET);
+					HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
+
+					sprintf(val_msg, "SYSTEM VOLTAGE: OVERVOLTAGE (%f)\r\n", sys_voltage );
+				}else{  // disable all LED
+					current_state = STATE_RUNNING;
+					HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
+					HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
+
+					sprintf(val_msg, "SYSTEM VOLTAGE: OK (%f)\r\n", sys_voltage );
+				}
+
+				HAL_UART_Transmit(&huart2, (uint8_t *) val_msg, strlen(val_msg), HAL_MAX_DELAY);
+
+				HAL_SuspendTick(); // prevent wakeup from systick interrupt
+				HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
+
 				break;
 
 			case STATE_WAITING:
