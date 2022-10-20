@@ -28,5 +28,5 @@ The machine is still acquiring the system voltage every 350ms, if the voltage le
 
 
 ## STATE WAITING
-This state is enabled when the system detects that the button is pressed. This event put the machine in **STATE_WAITING**, turn off all LED and while in this state it performs a single task: print on UART the message "Board in waiting state - please press the emergency button" every 500ms.
+This state is enabled when the system detects that the button is pressed. This event put the machine in **STATE_WAITING**, turn off all LED and while in this state it performs a single task: print on UART the message "Board in waiting state - please press the emergency button" every 500ms.  
 This happens until the button is pressed again, at this point the state of the machine is switched to **STATE_RUNNING** where we restart monitoring our devices.
