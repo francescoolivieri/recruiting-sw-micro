@@ -90,7 +90,11 @@ RTC_DateTypeDef sDate;
 int main(void)
 {
   /* USER CODE BEGIN 1 */
+	ADC_ChannelConfTypeDef sConfig = {0};
+	sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+	sConfig.Rank = 1;
 
+	uint16_t raw;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -119,10 +123,10 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   // set default msg for STATE_WAITING
-  char msg[50];
-  strcpy(msg, "Board in waiting state - please press the emergency button\r\n");
+  char w_msg[65];
+  strcpy(w_msg, "Board in waiting state - please press the emergency button\r\n");
 
-  char msg2[50];
+  char val_msg[50];
 
   HAL_TIM_Base_Start_IT(&htim10);
   HAL_TIM_Base_Start_IT(&htim11);
@@ -136,40 +140,65 @@ int main(void)
 		switch (current_state) {
 			case STATE_RUNNING:
 			case STATE_DANGER:
-				//HAL_SuspendTick(); // prevent wakeup from systick interrupt
-				//HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
-
-				HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
-				HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+				if(!sys_v_change && !sens_val_change){
+					HAL_SuspendTick(); // prevent wakeup from systick interrupt
+					HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
+				}
 
 				if(sens_val_change == true){
-					sens_val_change = false;
-
-					sprintf(msg2, "T: %.2f (%02d:%02d)\r\n", sens_val, sTime.Minutes, sTime.Seconds);
-					HAL_UART_Transmit(&huart2, (uint8_t*) msg2, strlen(msg2), HAL_MAX_DELAY);
+					sConfig.Channel = ADC_CHANNEL_11; // select sensor's channel
 				}else if(sys_v_change == true){
-					sys_v_change = false;
+					sConfig.Channel = ADC_CHANNEL_12; // select potentiometer's channel
+				}
 
-					if(sys_voltage < 1.8){
+				HAL_ADC_ConfigChannel(&hadc1, &sConfig); // set selected channel
+
+				HAL_ADC_Start(&hadc1); // start getting ADC value
+				HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY); //hang until the conversion is done
+				raw = HAL_ADC_GetValue(&hadc1); // get raw value
+				HAL_ADC_Stop(&hadc1); // stop ADC reading
+
+				HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN); // take timing
+				HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN); // take timing
+
+				if(sens_val_change){
+					sens_val = (raw * 330.0) / 4095.0; // 3.3 -> Vin * 100 (sensor scale factor 10mV/C), 4095 -> 2^(12) - 1
+
+				}else if(sys_v_change){
+					sys_voltage = (raw * 3.3) / 4095.0; // 3.3 -> Vin , 4095 -> 2^(12) - 1
+
+					// CHECK SYSTEM VOLTAGE
+					if(sys_voltage < 1.8){  // enable one LED
+						current_state = STATE_DANGER;
 						HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_SET);
 						HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
-					}else if(sys_voltage > 2.7){
+					}else if(sys_voltage > 2.7){  // enable the other LED
+						current_state = STATE_DANGER;
 						HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_SET);
 						HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
-					}else{
+					}else{  // disable all LED
+						current_state = STATE_RUNNING;
 						HAL_GPIO_WritePin(LD_UNDER_V_GPIO_Port, LD_UNDER_V_Pin, GPIO_PIN_RESET);
 						HAL_GPIO_WritePin(LD_OVER_V_GPIO_Port, LD_OVER_V_Pin, GPIO_PIN_RESET);
 					}
-
-					sprintf(msg2, "V: %.2f (%02d:%02d)\r\n", sys_voltage, sTime.Minutes, sTime.Seconds);
-					HAL_UART_Transmit(&huart2, (uint8_t*) msg2, strlen(msg2), HAL_MAX_DELAY);
 				}
 
+				uint32_t msec = 1000 * (sTime.SecondFraction - sTime.SubSeconds) / (sTime.SecondFraction + 1);
+
+				if(sens_val_change){
+					sens_val_change = false;
+
+					sprintf(val_msg, "T: %.2f (%02d:%02d:%lu)\r\n", sens_val, sTime.Minutes, sTime.Seconds, msec);
+				}else if(sys_v_change){
+					sys_v_change = false;
+
+					sprintf(val_msg, "V: %.2f (%02d:%02d:%lu)\r\n", sys_voltage, sTime.Minutes, sTime.Seconds, msec);
+				}
+
+				HAL_UART_Transmit(&huart2, (uint8_t*) val_msg, strlen(val_msg), HAL_MAX_DELAY);
+
 				/*
-				HAL_SuspendTick(); // prevent wakeup from systick interrupt
 				HAL_PWR_EnableSleepOnExit(); // MCU wakeup, process ISR and then go back to sleep
-				HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
-				HAL_ResumeTick(); // sleep mode ended -> HAL_PWR_DisableSleepOnExit() has been called
 				*/
 				break;
 
@@ -183,7 +212,7 @@ int main(void)
 					first_entry = false;
 				}
 
-				HAL_UART_Transmit(&huart2, (uint8_t*) msg, strlen(msg), HAL_MAX_DELAY);
+				HAL_UART_Transmit(&huart2, (uint8_t*) w_msg, strlen(w_msg), HAL_MAX_DELAY);
 				HAL_Delay(500);
 
 				break;
@@ -541,41 +570,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
 	HAL_ResumeTick();
 
-	ADC_ChannelConfTypeDef sConfig = {0};
-	sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
-
-	uint16_t raw;
 	if(htim == &htim10){
-		// 200ms -> sensor value
-
-		sConfig.Channel = ADC_CHANNEL_11;
-		sConfig.Rank = 1;
-
-		HAL_ADC_ConfigChannel(&hadc1, &sConfig);
-		// posso controllare status
-		HAL_ADC_Start(&hadc1); // start getting ADC value
-		//if time > delay -> HAL_TIMEOUT value is returned, I should use DMA so I don't operate with CPU
-		HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY); //hang until the conversion is done
-		raw = HAL_ADC_GetValue(&hadc1);
-		sens_val = (raw * 330.0) / 4095.0;
-		HAL_ADC_Stop(&hadc1);
-
+		// 200ms -> sensor value check
 		sens_val_change = true;
 	}else if(htim == &htim11){
 		// 350ms -> sys_voltage check
-
-		sConfig.Channel = ADC_CHANNEL_12;
-		sConfig.Rank = 1;
-
-		HAL_ADC_ConfigChannel(&hadc1, &sConfig);
-		// posso controllare status
-		HAL_ADC_Start(&hadc1); // start getting ADC value
-		//if time > delay -> HAL_TIMEOUT value is returned, I should use DMA so I don't operate with CPU
-		HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY); //hang until the conversion is done
-		raw = HAL_ADC_GetValue(&hadc1);
-		sys_voltage = (raw * 3.3) / 4095.0;
-		HAL_ADC_Stop(&hadc1);
-
 		sys_v_change = true;
 	}
 
