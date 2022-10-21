@@ -40,7 +40,7 @@ typedef enum {
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
+#define SLEEP_MODE
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -119,7 +119,10 @@ int main(void)
   MX_TIM10_Init();
   MX_TIM11_Init();
   MX_ADC1_Init();
-  MX_RTC_Init();
+
+  #ifdef SLEEP_MODE
+  	  MX_RTC_Init();
+  #endif
   /* USER CODE BEGIN 2 */
 
   // set default msg for STATE_WAITING
@@ -139,12 +142,13 @@ int main(void)
 
 		switch (current_state) {
 			case STATE_RUNNING:
-				/*
-				 * WITH SLEEPING MODE WE NEED RTC
-				 * if(!sys_v_change && !sens_val_change){
-					HAL_SuspendTick(); // prevent wakeup from systick interrupt
-					HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
-				}*/
+				#ifdef SLEEP_MODE
+					//WITH SLEEPING MODE WE NEED RTC
+				 	if(!sys_v_change && !sens_val_change){
+				 		HAL_SuspendTick(); // prevent wakeup from systick interrupt
+				 		HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
+				 	}
+				#endif
 
 				if(sens_val_change || sys_v_change){
 					if(sens_val_change == true){
@@ -160,8 +164,10 @@ int main(void)
 					raw = HAL_ADC_GetValue(&hadc1); // get raw value
 					HAL_ADC_Stop(&hadc1); // stop ADC reading
 
-					//HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN); // take timing
-					//HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN); // take timing
+					#ifdef SLEEP_MODE
+						HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN); // take timing
+						HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN); // take timing
+					#endif
 
 					if(sens_val_change){
 						sens_val = (raw * 330.0) / 4095.0; // 3.3 -> Vin * 100 (sensor scale factor 10mV/C), 4095 -> 2^(12) - 1
@@ -175,21 +181,31 @@ int main(void)
 						}
 					}
 
-					//uint32_t msec = 1000 * (sTime.SecondFraction - sTime.SubSeconds) / (sTime.SecondFraction + 1);
+					#ifdef SLEEP_MODE
+						uint32_t msec = 1000 * (sTime.SecondFraction - sTime.SubSeconds) / (sTime.SecondFraction + 1);
+					#else
+						uint32_t msec = HAL_GetTick()%1000;
+					#endif
 
-					uint32_t msec = HAL_GetTick()%1000;
 					if(sens_val_change){
 						sens_val_change = false;
 
-						sprintf(val_msg,"T: %.2f (%lu ms)\r\n", sens_val, msec );
-						//sprintf(val_msg, "V: %.2f (%02d:%02d:%lu)\r\n", sens_val, sTime.Minutes, sTime.Seconds, msec);
+						#ifdef SLEEP_MODE
+							sprintf(val_msg, "T: %.2f (%02d:%02d:%lu)\r\n", sens_val, sTime.Minutes, sTime.Seconds, msec);
+						#else
+							sprintf(val_msg,"T: %.2f (%lu ms)\r\n", sens_val, msec );
+						#endif
+
 					}else if(sys_v_change){
 
 						if(current_state != STATE_DANGER) // otherwise I won't check the value in STATE_DANGER code
 							sys_v_change = false;
 
-						sprintf(val_msg,"V: %.2f (%lu ms)\r\n", sys_voltage, msec );
-						//sprintf(val_msg, "V: %.2f (%02d:%02d:%lu)\r\n", sys_voltage, sTime.Minutes, sTime.Seconds, msec);
+						#ifdef SLEEP_MODE
+							sprintf(val_msg, "V: %.2f (%02d:%02d:%lu)\r\n", sys_voltage, sTime.Minutes, sTime.Seconds, msec);
+						#else
+							sprintf(val_msg,"V: %.2f (%lu ms)\r\n", sys_voltage, msec );
+						#endif
 					}
 
 					HAL_UART_Transmit(&huart2, (uint8_t*) val_msg, strlen(val_msg), HAL_MAX_DELAY);
@@ -232,8 +248,10 @@ int main(void)
 
 				}
 
-				//HAL_SuspendTick(); // prevent wakeup from systick interrupt
-				//HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
+				#ifdef SLEEP_MODE
+					HAL_SuspendTick(); // prevent wakeup from systick interrupt
+					HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI); //enter sleep mode
+				#endif
 
 				break;
 
@@ -587,7 +605,9 @@ static void MX_GPIO_Init(void)
 
 // called by IRQHandler of GPIO_EXTI
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
-	HAL_ResumeTick();
+	#ifdef SLEEP_MODE
+		HAL_ResumeTick();
+	#endif
 
 	if(GPIO_Pin == B1_Pin){
 		if(current_state == STATE_RUNNING || current_state == STATE_DANGER){
@@ -603,7 +623,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
 // called by IRQHandler of the timer when it resets itself
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-	HAL_ResumeTick();
+	#ifdef SLEEP_MODE
+		HAL_ResumeTick();
+	#endif
 
 	if(htim == &htim10){
 		// 200ms -> sensor value check
