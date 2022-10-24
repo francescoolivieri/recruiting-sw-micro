@@ -40,7 +40,7 @@ typedef enum {
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-#define SLEEP_MODE
+//#define SLEEP_MODE
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -111,6 +111,7 @@ int main(void)
 
   /* USER CODE BEGIN SysInit */
 
+
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -125,6 +126,7 @@ int main(void)
   #endif
   /* USER CODE BEGIN 2 */
 
+
   // set default msg for STATE_WAITING
   char w_msg[65];
   strcpy(w_msg, "Board in waiting state - please press the emergency button\r\n");
@@ -137,7 +139,6 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  HAL_Delay(250);
 	while (1) {
 
 		switch (current_state) {
@@ -184,7 +185,7 @@ int main(void)
 					#ifdef SLEEP_MODE
 						uint32_t msec = 1000 * (sTime.SecondFraction - sTime.SubSeconds) / (sTime.SecondFraction + 1);
 					#else
-						uint32_t msec = HAL_GetTick()%1000;
+						//uint32_t msec = HAL_GetTick()/10;//%1000;
 					#endif
 
 					if(sens_val_change){
@@ -193,7 +194,7 @@ int main(void)
 						#ifdef SLEEP_MODE
 							sprintf(val_msg, "T: %.2f (%02d:%02d:%lu)\r\n", sens_val, sTime.Minutes, sTime.Seconds, msec);
 						#else
-							sprintf(val_msg,"T: %.2f (%lu ms)\r\n", sens_val, msec );
+							sprintf(val_msg,"T: %.2f (%lu ms)\r\n", sens_val, HAL_GetTick()/10 );
 						#endif
 
 					}else if(sys_v_change){
@@ -202,9 +203,9 @@ int main(void)
 							sys_v_change = false;
 
 						#ifdef SLEEP_MODE
-							sprintf(val_msg, "V: %.2f (%02d:%02d:%lu)\r\n", sys_voltage, sTime.Minutes, sTime.Seconds, msec);
+							sprintf(val_msg, "V: %.2f (%02d:%02d:%lu)\r\n", sys_voltage, sTime.Minutes, sTime.Seconds, HAL_GetTick()/10);
 						#else
-							sprintf(val_msg,"V: %.2f (%lu ms)\r\n", sys_voltage, msec );
+							sprintf(val_msg,"V: %.2f (%lu ms)\r\n", sys_voltage, HAL_GetTick()/10 );
 						#endif
 					}
 
@@ -468,7 +469,11 @@ static void MX_TIM10_Init(void)
 {
 
   /* USER CODE BEGIN TIM10_Init 0 */
+	/* Set the URS bit */
 
+	  TIM10-> CR1 |= TIM_CR1_URS;
+
+	//  __HAL_TIM_CLEAR_FLAG(&htim10, TIM_FLAG_UPDATE);
   /* USER CODE END TIM10_Init 0 */
 
   /* USER CODE BEGIN TIM10_Init 1 */
@@ -480,11 +485,14 @@ static void MX_TIM10_Init(void)
   htim10.Init.Period = 400-1;
   htim10.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim10.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+
   if (HAL_TIM_Base_Init(&htim10) != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM10_Init 2 */
+
+  __HAL_TIM_CLEAR_FLAG(&htim10, TIM_FLAG_UPDATE);
 
   /* USER CODE END TIM10_Init 2 */
 
@@ -499,6 +507,9 @@ static void MX_TIM11_Init(void)
 {
 
   /* USER CODE BEGIN TIM11_Init 0 */
+	/* Set the URS bit */
+	TIM11->ARR = 0;
+	TIM11-> CR1 |= TIM_CR1_URS;
 
   /* USER CODE END TIM11_Init 0 */
 
@@ -516,7 +527,7 @@ static void MX_TIM11_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM11_Init 2 */
-
+  __HAL_TIM_CLEAR_FLAG(&htim11, TIM_FLAG_UPDATE);
   /* USER CODE END TIM11_Init 2 */
 
 }

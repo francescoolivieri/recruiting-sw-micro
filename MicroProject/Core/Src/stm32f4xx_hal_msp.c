@@ -227,7 +227,6 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* htim_base)
   else if(htim_base->Instance==TIM11)
   {
   /* USER CODE BEGIN TIM11_MspInit 0 */
-
   /* USER CODE END TIM11_MspInit 0 */
     /* Peripheral clock enable */
     __HAL_RCC_TIM11_CLK_ENABLE();
